@@ -1,69 +1,109 @@
-const express = require('express')
-const app = express()
-const PORT = 3000
+const express = require('express');
+const mongoose = require('mongoose');
+const Task = require('./models/Task');
 
-// Middleware
-app.use(express.json())
+const app = express();
+const PORT = 3000;
 
-// In-memory tasks array
-let tasks = [
-  { id: 1, title: 'Learn React', completed: false },
-  { id: 2, title: 'Build REST API', completed: false },
-  { id: 3, title: 'Study Express.js', completed: true }
-]
+// Middleware for parsing JSON
+app.use(express.json());
 
-// GET /tasks - Retrieve all tasks
-app.get('/tasks', (req, res) => {
-  res.json(tasks)
-})
+// MongoDB Connection URI (Local MongoDB / MongoDB Compass)
+const MONGO_URI = 'mongodb://127.0.0.1:27017/taskmanager';
 
-// GET /tasks/:id - Retrieve single task
-app.get('/tasks/:id', (req, res) => {
-  const task = tasks.find(t => t.id === parseInt(req.params.id))
-  if (!task) {
-    return res.status(404).json({ message: 'Task not found' })
+mongoose.connect(MONGO_URI)
+  .then(() => {
+    console.log('Express Server and MongoDB Connected Successfully');
+  })
+  .catch((err) => {
+    console.error('MongoDB Connection Error:', err.message);
+  });
+
+// 1. POST /tasks - Create a new task (Schema Validation & Default Values)
+app.post('/tasks', async (req, res) => {
+  try {
+    const task = new Task(req.body);
+    const savedTask = await task.save();
+    res.status(201).json(savedTask);
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
   }
-  res.json(task)
-})
+});
 
-// POST /tasks - Create new task
-app.post('/tasks', (req, res) => {
-  const newTask = {
-    id: tasks.length > 0 ? tasks[tasks.length - 1].id + 1 : 1,
-    title: req.body.title,
-    completed: req.body.completed || false
+// 2. GET /tasks - Retrieve all tasks
+app.get('/tasks', async (req, res) => {
+  try {
+    const tasks = await Task.find();
+    res.status(200).json(tasks);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  tasks.push(newTask)
-  res.status(201).json(newTask)
-})
+});
 
-// PUT /tasks/:id - Update task
-app.put('/tasks/:id', (req, res) => {
-  const task = tasks.find(t => t.id === parseInt(req.params.id))
-  if (!task) {
-    return res.status(404).json({ message: 'Task not found' })
+// 3. GET /tasks/:id - Retrieve a single task by ID
+app.get('/tasks/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid Task ID format' });
+    }
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    res.status(200).json(task);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  task.title = req.body.title || task.title
-  task.completed = req.body.completed !== undefined ? req.body.completed : task.completed
-  res.json(task)
-})
+});
 
-// DELETE /tasks/:id - Delete task
-app.delete('/tasks/:id', (req, res) => {
-  const index = tasks.findIndex(t => t.id === parseInt(req.params.id))
-  if (index === -1) {
-    return res.status(404).json({ message: 'Task not found' })
+// 4. PUT /tasks/:id - Update task by ID (with validation)
+app.put('/tasks/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid Task ID format' });
+    }
+    const updatedTask = await Task.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    if (!updatedTask) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    res.status(200).json(updatedTask);
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
   }
-  const deleted = tasks.splice(index, 1)
-  res.json({ message: 'Task deleted', task: deleted[0] })
-})
+});
 
-// 404 Error Handling - Unknown routes
+// 5. DELETE /tasks/:id - Delete task by ID
+app.delete('/tasks/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid Task ID format' });
+    }
+    const deletedTask = await Task.findByIdAndDelete(req.params.id);
+    if (!deletedTask) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    res.status(200).json({ message: 'Task deleted successfully', task: deletedTask });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 6. 404 Error Handling for undefined routes
 app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' })
-})
+  res.status(404).json({ message: 'Route not found' });
+});
 
-// Start server
+// Start Express Server
 app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`)
-})
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
